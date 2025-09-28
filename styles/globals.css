@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root{--brand:#111827}
+html,body,#__next{height:100%}
+.btn{ @apply px-3 py-2 rounded-lg border text-sm}
+.btn-primary{ @apply bg-black text-white border-black hover:opacity-90}
+.btn-ghost{ @apply border-slate-300 hover:bg-slate-50}
+.chip{ @apply inline-flex items-center px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 cursor-pointer text-sm}
+.input{ @apply w-full border rounded-lg px-3 py-2}
+.label{ @apply text-xs text-slate-500}
+.card{ @apply rounded-2xl border p-4 bg-white shadow-sm}
+.table{ @apply w-full text-sm}
+.table th{ @apply text-left text-slate-500 font-medium border-b}
+.table td{ @apply py-2 border-b}
+.dark-header{ background:var(--brand); color:white}
