@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import SidebarParams, { defaultParams } from "@/components/SidebarParams";
 import { calcularPresupuesto } from "@/lib/calculo";
-import { exportarPDF } from "@/lib/pdf";
 import SummaryCard from "@/components/SummaryCard";
 
 export default function Home(){
