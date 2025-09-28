@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { calcularPresupuesto } from "@/lib/calculo";
 import SummaryCard from "@/components/SummaryCard";
 import SidebarParams, { defaultParams } from "@/components/SidebarParams";
 
+/** Pasos de conversación (formato chat) */
 const steps = [
-  { key: "ciudad", label: "¿En qué ciudad es la reforma?", type: "select", optionsFrom: (params)=>Object.keys(params.referenciaCiudad) },
+  { key: "ciudad", label: "¿En qué ciudad es la reforma?", type: "select", optionsFrom: (p)=>Object.keys(p.referenciaCiudad) },
   { key: "calidad", label: "¿Qué nivel de calidad buscas?", type: "chips", options: ["Basico", "Estandar", "Premium"] },
   { key: "m2", label: "¿Cuántos m² tiene?", type: "number", placeholder: "Ej. 100" },
   { key: "incluirDerribo", label: "¿Incluimos derribo base?", type: "chips", options: ["Sí","No"], map: v=> v==="Sí" },
@@ -13,12 +13,11 @@ const steps = [
   { key: "tabiqueria_m2", label: "¿Cuántos m² de tabiquería?", type: "number", placeholder: "0 si no aplica" },
   { key: "cocina", label: "¿Incluye cocina fija?", type: "chips", options: ["Sí","No"], map: v=> v==="Sí" },
   { key: "numHabitaciones", label: "¿Número de habitaciones?", type: "number" },
-  { key: "falsoTecho_m2", label: "¿m² de falso techo?", type: "number" }
+  { key: "falsoTecho_m2", label: "¿m² de falso techo?", type: "number" },
 ];
 
 export default function Chat(){
   const [params, setParams] = useState(defaultParams);
-  const [idx, setIdx] = useState(0);
   const [input, setInput] = useState({
     ciudad: defaultParams.ciudadPorDefecto,
     calidad: "Estandar",
@@ -28,42 +27,62 @@ export default function Chat(){
     tabiqueria_m2: 0,
     cocina: false,
     numHabitaciones: 0,
-    falsoTecho_m2: 0
+    falsoTecho_m2: 0,
   });
+
+  const [idx, setIdx] = useState(0);
+  const [messages, setMessages] = useState([]);
+  const endRef = useRef(null);
+
+  const current = steps[idx];
 
   const resultado = useMemo(()=>calcularPresupuesto({
     ...input,
     tabiqueria_tipo: input.tabiqueria_tipo==="Ninguna" ? "" : input.tabiqueria_tipo
   }, params), [input, params]);
 
-  const step = steps[idx];
-  const back = ()=> setIdx(i => Math.max(0, i-1));
-  const next = ()=> setIdx(i => Math.min(steps.length-1, i+1));
+  useEffect(()=>{
+    if (messages.length === 0) setMessages([{ role:"bot", text: steps[0].label }]);
+  },[]);
 
-  const setAnswer = (value)=>{
-    if (step.key === "incluirDerribo"){
-      setInput(prev=>({...prev, incluirDerribo: value==="Sí"}));
-    } else if (step.key === "cocina"){
-      setInput(prev=>({...prev, cocina: value==="Sí"}));
-    } else if (step.key === "tabiqueria_tipo"){
-      setInput(prev=>({...prev, tabiqueria_tipo: value==="Ninguna" ? "Ninguna" : value}));
-    } else if (step.type === "number"){
-      setInput(prev=>({...prev, [step.key]: Number(value)||0}));
-    } else {
-      setInput(prev=>({...prev, [step.key]: value}));
-    }
-    next();
+  useEffect(()=>{
+    endRef.current?.scrollIntoView({ behavior:"smooth" });
+  },[messages]);
+
+  const pushBot = (i) => {
+    const s = steps[i];
+    if (!s) return;
+    setMessages(m => [...m, { role:"bot", text: s.label }]);
   };
 
-  const exportJSON = () => {
-    const payload = { input, params, resultado };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "chat_calculo_reforma.json";
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleAnswer = (raw) => {
+    const s = steps[idx];
+    if (!s) return;
+    const value = s.type === "number" ? Number(raw)||0 : (s.map ? s.map(raw) : raw);
+
+    setInput(prev => ({ ...prev, [s.key]: value }));
+    setMessages(m => [...m, { role:"user", text: String(raw) }]);
+
+    const next = idx + 1;
+    setIdx(next);
+    if (next < steps.length) pushBot(next);
+    else setMessages(m => [...m, { role:"bot", text: "¡Listo! Ya tengo todo para calcular tu presupuesto." }]);
+  };
+
+  const goBack = () => {
+    if (idx === 0) return;
+    setMessages(m => {
+      const copy = [...m];
+      if (copy.at(-1)?.text?.startsWith("¡Listo!")) copy.pop();
+      // quitar última respuesta del user
+      while (copy.length && copy.at(-1).role !== "user") copy.pop();
+      if (copy.length) copy.pop(); // quita user
+      // quitar la última pregunta del bot
+      while (copy.length && copy.at(-1).role !== "bot") copy.pop();
+      if (copy.length) copy.pop(); // quita bot
+      return copy;
+    });
+    setIdx(i => i - 1);
   };
 
   const handlePDF = async () => {
@@ -71,86 +90,91 @@ export default function Chat(){
     await exportarPDF({ input, resultado });
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="dark-header">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button className="btn btn-ghost" onClick={back}>← Atrás</button>
-            <h1 className="font-semibold">Chat asistido</h1>
-          </div>
-          <nav className="space-x-3 text-sm">
-            <Link href="/" className="hover:underline">Formulario</Link>
-            <a href="#" onClick={e=>{e.preventDefault(); exportJSON();}} className="btn btn-ghost">Export JSON</a>
-            <button className="btn btn-primary" onClick={handlePDF}>Export PDF</button>
-          </nav>
-        </div>
-      </header>
+  // Composer según tipo
+  const [numberVal, setNumberVal] = useState("");
+  useEffect(()=>{ setNumberVal(""); }, [idx]);
 
-      <main className="max-w-6xl mx-auto px-4 py-6 grid md:grid-cols-[1fr_320px] gap-6">
+  const Composer = () => {
+    if (!current) return null;
+
+    if (current.type === "chips") {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {current.options.map(opt => (
+            <button key={opt} className="chip" onClick={()=>handleAnswer(opt)}>{opt}</button>
+          ))}
+        </div>
+      );
+    }
+
+    if (current.type === "select") {
+      const opts = current.optionsFrom ? current.optionsFrom(params) : current.options;
+      return (
+        <div className="flex gap-2">
+          <select
+            className="select max-w-xs"
+            value={input[current.key]}
+            onChange={e=>handleAnswer(e.target.value)}
+          >
+            {opts.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      );
+    }
+
+    // number
+    return (
+      <div className="flex gap-2">
+        <input
+          className="input max-w-xs"
+          type="number"
+          placeholder={current.placeholder || ""}
+          value={numberVal}
+          onChange={e=>setNumberVal(e.target.value)}
+          onKeyDown={e=>{ if (e.key==="Enter") handleAnswer(numberVal); }}
+        />
+        <button className="btn btn-primary" onClick={()=>handleAnswer(numberVal)}>Enviar</button>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Barra de acciones superior de la página: Atrás + PDF (solo arriba) */}
+      <div className="flex items-center justify-between mb-4">
+        <button className="btn" onClick={goBack} disabled={idx===0}>← Atrás</button>
+        <button className="btn btn-primary" onClick={handlePDF}>Export PDF</button>
+      </div>
+
+      <div className="grid md:grid-cols-[1fr_320px] gap-6">
+        {/* Chat */}
         <section className="space-y-4">
           <div className="card">
-            <div className="mb-3">
-              <div className="text-xs text-slate-500 mb-1">Paso {idx+1} de {steps.length}</div>
-              <h2 className="text-lg font-semibold">{step.label}</h2>
+            <div className="h-[60vh] overflow-y-auto pr-2">
+              {messages.map((m, i) => (
+                <div key={i} className={`mb-2 flex ${m.role==="user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`px-3 py-2 rounded-2xl max-w-[80%] ${
+                    m.role==="user" ? "bg-black text-white" : "bg-gray-100"
+                  }`}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              <div ref={endRef} />
             </div>
 
-            {step.type === "chips" && (
-              <div className="flex flex-wrap gap-2">
-                {step.options.map(opt => (
-                  <button key={opt} className="chip" onClick={()=>setAnswer(opt)}>{opt}</button>
-                ))}
-              </div>
-            )}
-
-            {step.type === "number" && (
-              <div className="flex items-center gap-3">
-                <input
-                  className="input max-w-xs"
-                  type="number"
-                  placeholder={step.placeholder||""}
-                  value={input[step.key]}
-                  onChange={e=>setAnswer(e.target.value)}
-                />
-                <button className="btn btn-primary" onClick={next}>Continuar</button>
-              </div>
-            )}
-
-            {step.type === "select" && (
-              <select
-                className="input max-w-xs"
-                value={input[step.key]}
-                onChange={e=>setAnswer(e.target.value)}
-              >
-                {(step.optionsFrom ? step.optionsFrom(params) : step.options).map(o => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <div className="card">
-            <h3 className="font-semibold mb-2">Edición puntual</h3>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="label">m²</label>
-                <input className="input" type="number" value={input.m2}
-                  onChange={e=>setInput(prev=>({...prev, m2: parseFloat(e.target.value)||0}))} />
-              </div>
-              <div>
-                <label className="label">Tabiquería m²</label>
-                <input className="input" type="number" value={input.tabiqueria_m2}
-                  onChange={e=>setInput(prev=>({...prev, tabiqueria_m2: parseFloat(e.target.value)||0}))} />
-              </div>
+            <div className="mt-3 border-t pt-3">
+              <Composer />
             </div>
           </div>
         </section>
 
+        {/* Resumen + parámetros */}
         <div className="space-y-4">
           <SummaryCard resultado={resultado} />
           <SidebarParams params={params} setParams={setParams} />
         </div>
-      </main>
-    </div>
+      </div>
+    </>
   );
 }
